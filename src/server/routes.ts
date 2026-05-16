@@ -296,7 +296,6 @@ async function handleStreamingResponse(
                 // Detect auth errors before forwarding
                 if (isAuthError(allContent)) {
                     console.error("[Stream] Auth error detected in CLI output");
-                    progress.cleanup().catch(() => {});
                     if (!res.writableEnded) {
                         res.write(`data: ${JSON.stringify({
                             error: { message: "Claude CLI is not authenticated. Run: claude login", type: "auth_error", code: "not_authenticated" },
@@ -430,6 +429,7 @@ export function handleModels(_req: Request, res: Response): void {
     res.json({
         object: "list",
         data: [
+            { id: "claude-opus-4-7", object: "model", owned_by: "anthropic", created: Math.floor(Date.now() / 1000) },
             { id: "claude-opus-4", object: "model", owned_by: "anthropic", created: Math.floor(Date.now() / 1000) },
             { id: "claude-sonnet-4-6", object: "model", owned_by: "anthropic", created: Math.floor(Date.now() / 1000) },
             { id: "claude-sonnet-4", object: "model", owned_by: "anthropic", created: Math.floor(Date.now() / 1000) },

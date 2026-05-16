@@ -8,6 +8,7 @@ import { spawn } from "child_process";
 import { EventEmitter } from "events";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import {
     isAssistantMessage,
     isResultMessage,
@@ -21,38 +22,23 @@ import type {
 } from "../types/claude-cli.js";
 import type { ClaudeModel } from "../adapter/openai-to-cli.js";
 
-const PROXY_CWD = path.join(
-    process.env.HOME || "/tmp",
-    ".openclaw",
-    "workspace"
-);
+// Working directory for the spawned Claude CLI. Defaults to the directory
+// the proxy was launched from; override with CLAUDE_PROXY_CWD or
+// SubprocessOptions.cwd. Created if missing so spawn() can never fail with
+// an ENOENT that is indistinguishable from "claude binary not found".
+const DEFAULT_CWD = process.env.CLAUDE_PROXY_CWD || process.cwd();
 
-// ── Gateway token resolution ────────────────────────────────────
-// Read OPENCLAW_GATEWAY_TOKEN from openclaw.json if not in env.
-// This enables oc-tool (cross-channel messaging, browser, cron, etc.)
-// to authenticate with the gateway from within Claude CLI subprocesses.
-let _gatewayToken: string | null | undefined;
-
-function resolveGatewayToken(): string | null {
-    if (_gatewayToken !== undefined) return _gatewayToken;
-    // Prefer env var if explicitly set
-    if (process.env.OPENCLAW_GATEWAY_TOKEN) {
-        _gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
-        return _gatewayToken;
-    }
-    // Read from openclaw.json config
+function ensureCwd(preferred: string): string {
     try {
-        const configPath = path.join(process.env.HOME || "/tmp", ".openclaw", "openclaw.json");
-        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-        _gatewayToken = config?.gateway?.auth?.token || null;
-        if (_gatewayToken) {
-            console.error("[Subprocess] Resolved gateway token from openclaw.json");
-        }
+        fs.mkdirSync(preferred, { recursive: true });
+        return preferred;
     } catch (err: any) {
-        console.error("[Subprocess] Failed to read gateway token:", err.message);
-        _gatewayToken = null;
+        const fallback = os.tmpdir();
+        console.error(
+            `[Subprocess] Cannot use working dir ${preferred} (${err.message}); falling back to ${fallback}`
+        );
+        return fallback;
     }
-    return _gatewayToken;
 }
 
 const ACTIVITY_TIMEOUT = 600_000; // 10 minutes (no stdout activity = stuck)
@@ -90,18 +76,22 @@ export class ClaudeSubprocess extends EventEmitter {
         return new Promise((resolve, reject) => {
             try {
                 // Use spawn() for security - no shell interpretation
+                const cwd = ensureCwd(options.cwd || DEFAULT_CWD);
                 this.process = spawn("claude", args, {
-                    cwd: options.cwd || PROXY_CWD,
+                    cwd,
                     env: {
                         ...process.env,
+                        // Unset so the spawned CLI does not detect itself as
+                        // nested inside another Claude Code session.
                         CLAUDECODE: undefined,
-                        // Ensure oc-tool is findable and can reach the gateway
+                        // Keep ~/.local/bin (default Claude CLI install path)
+                        // on PATH even when launched as a daemon with a
+                        // stripped-down environment.
                         PATH: [
-                            path.join(process.env.HOME || "/tmp", ".openclaw", "bin"),
-                            process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-                        ].join(":"),
-                        OPENCLAW_GATEWAY_TOKEN: resolveGatewayToken() ?? undefined,
-                        OPENCLAW_GATEWAY_URL: process.env.OPENCLAW_GATEWAY_URL ?? "http://localhost:18789",
+                            process.env.PATH ?? "",
+                            path.join(process.env.HOME || "/tmp", ".local", "bin"),
+                            "/usr/local/bin:/usr/bin:/bin",
+                        ].filter(Boolean).join(":"),
                     },
                     stdio: ["pipe", "pipe", "pipe"],
                 });
@@ -113,10 +103,10 @@ export class ClaudeSubprocess extends EventEmitter {
                 // Handle spawn errors (e.g., claude not found)
                 this.process.on("error", (err) => {
                     this.clearTimeout();
-                    if (err.message.includes("ENOENT")) {
+                    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
                         reject(
                             new Error(
-                                "Claude CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
+                                "Claude CLI not found on PATH. Install with: npm install -g @anthropic-ai/claude-code"
                             )
                         );
                     } else {
