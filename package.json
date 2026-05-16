@@ -27,16 +27,16 @@
     "llm",
     "ai"
   ],
-  "author": "GodYeh",
+  "author": "verkhohliad",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/GodYeh/claude-max-api-proxy"
+    "url": "https://github.com/verkhohliad/claude-max-api-proxy"
   },
   "bugs": {
-    "url": "https://github.com/GodYeh/claude-max-api-proxy/issues"
+    "url": "https://github.com/verkhohliad/claude-max-api-proxy/issues"
   },
-  "homepage": "https://github.com/GodYeh/claude-max-api-proxy#readme",
+  "homepage": "https://github.com/verkhohliad/claude-max-api-proxy#readme",
   "dependencies": {
     "express": "^4.21.2",
     "uuid": "^11.0.5"
